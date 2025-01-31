@@ -5,8 +5,6 @@ $password = "";
 $dbname = "ad_bidding_system";
 
 $conn = new mysqli($servername, $username, $password, $dbname);
-
-// Check connection
 if ($conn->connect_error) {
     die("Connection failed: " . $conn->connect_error);
 }
@@ -21,53 +19,62 @@ $ad_types = [
 
 // Handling Ad Submission (Bid Placement)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_bid'])) {
-    // Ensure all POST variables are set or set defaults
-    $ad_type = isset($_POST['ad_type']) ? $_POST['ad_type'] : ''; 
-    $bid_amount = isset($_POST['bid_amount']) ? $_POST['bid_amount'] : 0;
-    $time_slot = isset($_POST['time_slot']) ? $_POST['time_slot'] : ''; 
-    $duration = isset($_POST['duration']) ? $_POST['duration'] : 0;
-    $ad_image_url = isset($_POST['ad_image_url']) ? $_POST['ad_image_url'] : '';
-    $js_code = isset($_POST['js_code']) ? $_POST['js_code'] : ''; // JavaScript code input
+    $title = $_POST['ad_title'] ?? '';
+    $ad_type = $_POST['ad_type'] ?? ''; 
+    $bid_amount = $_POST['bid_amount'] ?? 0;
+    $time_slot = $_POST['time_slot'] ?? ''; 
+    $duration = $_POST['duration'] ?? 0;
+    $image_url = $_POST['ad_image_url'] ?? '';
+    $video_url = !empty($_POST['ad_video_url']) ? $_POST['ad_video_url'] : NULL; // Ensure NULL handling
+    $js_code = $_POST['js_code'] ?? '';
 
-    // Get the advertiser ID dynamically or from the session (for now set to static for simplicity)
+    // Debugging: Check if video_url is captured
+    // var_dump($video_url); exit;
+
+    // Get advertiser ID dynamically (static 1 for now)
     $advertiser_id = 1;
 
-    // Get ad dimensions based on the ad type
-    if (isset($ad_types[$ad_type])) {
-        $width = $ad_types[$ad_type]['width'];
-        $height = $ad_types[$ad_type]['height'];
-    } else {
-        // Default dimensions if ad type is invalid
-        $width = 240;
-        $height = 600;
-    }
+    // Get dimensions based on ad type
+    $width = $ad_types[$ad_type]['width'] ?? 240;
+    $height = $ad_types[$ad_type]['height'] ?? 600;
 
-    // Start and end time for ad placement (static for now)
     $start_time = date("Y-m-d H:i:s");
     $end_time = date("Y-m-d H:i:s", strtotime("+24 hours"));
 
-    // Prepare statement to insert ad with width, height, and bid details (status is hardcoded to 'Pending')
-    $stmt = $conn->prepare("INSERT INTO ads (advertiser_id, ad_type, bid_amount, time_slot, duration, ad_image_url, width, height, start_time, end_time, status) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending')");
-
-    if ($stmt === false) {
-        die("Error preparing statement: " . $conn->error);
-    }
-
-    // Bind parameters (ensure the right number of parameters are passed)
-    $stmt->bind_param("isdsdsssss", $advertiser_id, $ad_type, $bid_amount, $time_slot, $duration, $ad_image_url, $width, $height, $start_time, $end_time);
-
-    // Execute the statement
-    if ($stmt->execute()) {
-        $message = "Ad bid placed successfully!";
-    } else {
-        $message = "Error placing ad bid: " . $stmt->error;
-    }
-
+    // Check if another ad exists in the same time slot
+    $stmt = $conn->prepare("SELECT ad_id, bid_amount FROM ads WHERE time_slot = ?");
+    $stmt->bind_param("s", $time_slot);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $existing_ad = $result->fetch_assoc();
     $stmt->close();
+
+    if ($existing_ad) {
+        $existing_bid = $existing_ad['bid_amount'];
+        $existing_ad_id = $existing_ad['ad_id'];
+
+        if ($bid_amount > $existing_bid) {
+            // Replace the lower bid with the new one
+            $stmt = $conn->prepare("UPDATE ads SET advertiser_id = ?, title = ?, ad_type = ?, bid_amount = ?, duration = ?, image_url = ?, video_url = ?, width = ?, height = ?, start_time = ?, end_time = ?, status = 'Pending' WHERE ad_id = ?");
+            $stmt->bind_param("issdsdsssssi", $advertiser_id, $title, $ad_type, $bid_amount, $duration, $image_url, $video_url, $width, $height, $start_time, $end_time, $existing_ad_id);
+            $stmt->execute();
+            $stmt->close();
+            $message = "Ad space taken! Your bid replaced the lower bidder.";
+        } else {
+            $message = "Bid too low! The current highest bid is $$existing_bid. Please increase your bid.";
+        }
+    } else {
+        // Insert new ad
+        $stmt = $conn->prepare("INSERT INTO ads (advertiser_id, title, ad_type, bid_amount, time_slot, duration, image_url, video_url, width, height, start_time, end_time, status) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending')");
+        $stmt->bind_param("issdsdssssss", $advertiser_id, $title, $ad_type, $bid_amount, $time_slot, $duration, $image_url, $video_url, $width, $height, $start_time, $end_time);
+        $stmt->execute();
+        $stmt->close();
+        $message = "Ad bid placed successfully!";
+    }
 }
 
-// Retrieve ads for this advertiser
+// Retrieve ads
 $sql = "SELECT * FROM ads WHERE advertiser_id = 1 ORDER BY start_time DESC";
 $result = $conn->query($sql);
 
@@ -81,7 +88,13 @@ if ($result->num_rows > 0) {
 }
 
 $conn->close();
+
+
+
 ?>
+
+
+
 
 <!DOCTYPE html>
 <html lang="en">

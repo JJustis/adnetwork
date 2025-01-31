@@ -51,6 +51,136 @@ if (!$ad) {
 // Close the database connection
 $conn->close();
 ?>
+(function () {
+    let adQueue = [];
+    let defaultAds = [];
+    let currentAdIndex = 0;
+
+    function fetchAds() {
+        fetch('get_ads.php')
+            .then(response => response.json())
+            .then(data => {
+                console.log("Ad data received:", data);
+                
+                adQueue = data.scheduledAds || [];
+                defaultAds = data.defaultAds || [];
+
+                if (adQueue.length > 0) {
+                    startAdRotation();
+                } else {
+                    cycleDefaultAds();
+                }
+            })
+            .catch(error => console.error('Error fetching ads:', error));
+    }
+
+    function startAdRotation() {
+        if (adQueue.length > 0) {
+            displayAd(adQueue.shift());
+        } else {
+            cycleDefaultAds();
+        }
+    }
+
+    function cycleDefaultAds() {
+        if (defaultAds.length === 0) return;
+
+        const ad = defaultAds[currentAdIndex];
+        displayAd(ad);
+
+        currentAdIndex = (currentAdIndex + 1) % defaultAds.length;
+        setTimeout(cycleDefaultAds, 5000); // Rotate ads every 5 seconds
+    }
+
+    function displayAd(ad) {
+        const adContainer = document.getElementById('ad-container') || createAdContainer();
+        adContainer.innerHTML = ''; // Clear previous content
+
+        if (!ad) {
+            console.warn("Invalid ad data.");
+            return;
+        }
+
+        let adContent;
+
+        if (ad.video_url && ad.video_url.includes("youtu")) {
+            // Handle YouTube links
+            const videoId = ad.video_url.split("/").pop().split("?")[0];
+            const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&controls=0`;
+
+            const iframe = document.createElement("iframe");
+            iframe.src = embedUrl;
+            iframe.width = "100%";
+            iframe.height = "300px";
+            iframe.allow = "autoplay; encrypted-media";
+            iframe.frameBorder = "0";
+            adContent = iframe;
+        } else if (ad.video_url) {
+            // Handle regular video ads
+            adContent = document.createElement("video");
+            adContent.src = ad.video_url;
+            adContent.autoplay = true;
+            adContent.muted = true;
+            adContent.loop = true;
+            adContent.controls = false;
+            adContent.style.width = "100%";
+        } else if (ad.image_url) {
+            // Handle image ads
+            adContent = document.createElement("img");
+            adContent.src = ad.image_url;
+            adContent.style.width = "100%";
+        }
+
+        if (adContent) {
+            adContainer.appendChild(adContent);
+            setTimeout(startAdRotation, (ad.duration || 5) * 1000);
+        }
+    }
+
+    function createAdContainer() {
+        const adContainer = document.createElement("div");
+        adContainer.id = "ad-container";
+        adContainer.style.textAlign = "center";
+        adContainer.style.margin = "20px auto";
+        adContainer.style.border = "1px solid #ddd";
+        adContainer.style.padding = "15px";
+        adContainer.style.borderRadius = "10px";
+        adContainer.style.boxShadow = "0 6px 12px rgba(0, 0, 0, 0.1)";
+        adContainer.style.maxWidth = "600px";
+        adContainer.style.transition = "opacity 0.5s ease-in-out";
+
+        document.body.appendChild(adContainer);
+        return adContainer;
+    }
+
+    fetchAds();
+})();
+
+function playAd(ad) {
+  const adContainer = document.getElementById("ad-container");
+  adContainer.innerHTML = ""; // Clear previous content
+
+  if (ad.video_url && ad.video_url.includes("youtu")) {
+    // Extract Video ID and format the correct YouTube Embed URL
+    const videoId = ad.video_url.split("/").pop().split("?")[0];
+    const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&controls=0`;
+
+    const iframe = document.createElement("iframe");
+    iframe.src = embedUrl;
+    iframe.width = "100%";
+    iframe.height = "100%";
+    iframe.allow = "autoplay; encrypted-media";
+    iframe.frameBorder = "0";
+
+    adContainer.appendChild(iframe);
+  } else if (ad.image_url) {
+    // Display image ad
+    const img = document.createElement("img");
+    img.src = ad.image_url;
+    img.style.width = "100%";
+    adContainer.appendChild(img);
+  }
+}
 
 // JavaScript to display the ad
 (function() {
